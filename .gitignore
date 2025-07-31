@@ -1,0 +1,34 @@
+# Ambiente virtual do Python
+venv/
+.env
+*.pyc
+__pycache__/
+
+# Configurações específicas do VSCode
+.vscode/
+
+# Arquivos de cache do Django
+*.log
+*.pot
+*.py[cod]
+*.sqlite3
+
+# Arquivos temporários e de sistema
+.DS_Store
+Thumbs.db
+
+# Node.js
+node_modules/
+dist/
+*.log
+
+# Arquivos de build
+/build
+/public/build
+
+# Arquivos de ambiente
+.env.local
+.env.*.local
+
+# Sistema operacional
+*.swp
