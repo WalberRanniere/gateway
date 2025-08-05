@@ -9,6 +9,9 @@ import httpx
 from zeep import Client
 from .schemas import PrecoLivroSchema
 
+import pika
+import json
+
 api = NinjaAPI(title="Library Gateway API", description="API Gateway com REST, SOAP, HATEOAS")
 
 
@@ -184,7 +187,7 @@ def list_categories_hateoas(request):
     return results
 
 
-soap_client = Client("http://localhost:8003/?wsdl")
+soap_client = Client("http://soap_service:8003/?wsdl")
 
 
 @api.get("/preco-soap/{isbn}", response=PrecoLivroSchema, tags=['Preço (SOAP)'])
@@ -235,3 +238,109 @@ async def livro_detalhado_soap(request, isbn: str):
 
     except Exception as e:
         raise HttpError(500, f"Erro ao consultar dados combinados: {str(e)}")
+    
+@api.post("/livros/salvar/", tags=['Livro'])
+def salvar_livro(request, data: LivroProcessadoSchema):
+    try:
+        # Converte dados do consumer para o formato do modelo Book
+        livro_data = {
+            'isbn': data.isbn,
+            'title': data.titulo,  # titulo -> title
+            'author': data.autor,  # autor -> author
+            'published_date': '2024-01-01',  # data padrão, pois não temos essa info do consumer
+        }
+        
+        livro, created = Book.objects.get_or_create(
+            isbn=data.isbn, 
+            defaults=livro_data
+        )
+        
+        if created:
+            return {"success": True, "message": "Livro salvo com sucesso", "isbn": data.isbn}
+        else:
+            return {"success": False, "message": "Livro já existe", "isbn": data.isbn}
+            
+    except Exception as e:
+        raise HttpError(500, f"Erro ao salvar livro: {str(e)}")
+
+@api.post("/livros/criar/", response=BookSchema, tags=['Livro'])
+def criar_livro_manual(request, data: BookCreateSchema):
+    try:
+        from datetime import datetime
+        
+        livro_data = {
+            'isbn': data.isbn,
+            'title': data.title,
+            'author': data.author,
+            'published_date': datetime.strptime(data.published_date, '%Y-%m-%d').date(),
+        }
+        
+        livro = Book.objects.create(**livro_data)
+        
+        # Adiciona categorias se fornecidas
+        if data.categories:
+            livro.categories.set(data.categories)
+            
+        return livro
+        
+    except Exception as e:
+        raise HttpError(500, f"Erro ao criar livro: {str(e)}")
+
+
+@api.post("/enviar-para-fila", tags=["Mensageria"])
+def publicar_mensagem_na_fila(request, payload: LivroMensagemSchema):  # Você pode definir esse schema com isbn, por exemplo
+    try:
+        connection = pika.BlockingConnection(pika.ConnectionParameters(host="rabbitmq"))
+        channel = connection.channel()
+
+        channel.queue_declare(queue="livros", durable=True)  # nome da fila
+
+        mensagem = json.dumps({"isbn": payload.isbn})  # ou outro conteúdo necessário
+
+        channel.basic_publish(
+            exchange="", 
+            routing_key="livros", 
+            body=mensagem,
+            properties=pika.BasicProperties(delivery_mode=2)  # torna a mensagem persistente
+        )
+
+        connection.close()
+
+        return {"success": True, "message": "Mensagem publicada com sucesso na fila"}
+
+    except Exception as e:
+        raise HttpError(500, f"Erro ao publicar mensagem: {str(e)}")
+
+
+@api.post("/solicitar-processamento", tags=["Mensageria"])
+def solicitar_processamento(request, payload: LivroMensagemSchema):
+    try:
+        connection = pika.BlockingConnection(pika.ConnectionParameters(host="rabbitmq"))
+        channel = connection.channel()
+
+        channel.queue_declare(queue="livros", durable=True)
+
+        mensagem = json.dumps({"isbn": payload.isbn})
+
+        channel.basic_publish(
+            exchange="", 
+            routing_key="livros", 
+            body=mensagem,
+            properties=pika.BasicProperties(delivery_mode=2)
+        )
+
+        connection.close()
+
+        return {"success": True, "message": "Processamento solicitado com sucesso", "isbn": payload.isbn}
+
+    except Exception as e:
+        raise HttpError(500, f"Erro ao solicitar processamento: {str(e)}")
+    
+@api.get("/livro-processado/{isbn}", response=BookSchema, tags=["Mensageria"])
+def verificar_livro_processado(request, isbn: str):
+    try:
+        livro = get_object_or_404(Book, isbn=isbn)
+        return livro
+    except Exception as e:
+        raise HttpError(404, f"Livro com ISBN {isbn} ainda não processado ou não encontrado.")
+

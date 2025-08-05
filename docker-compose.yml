@@ -1,0 +1,82 @@
+version: "3.9"
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"       # Porta para comunicação entre serviços
+      - "15672:15672"     # Painel de administração Web
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  gateway:
+    build: 
+      context: .
+      dockerfile: ./library/Dockerfile
+    container_name: gateway
+    ports:
+      - "8000:8000"
+    depends_on:
+      - rabbitmq
+    volumes:
+      - ./library:/app
+    command: bash -c "python manage.py runserver 0.0.0.0:8000"
+  
+  service_details:
+    build:
+      context: .
+      dockerfile: ./service_details/Dockerfile
+    container_name: service_details
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./service_details:/app
+    command: bash -c "python manage.py runserver 0.0.0.0:8001"
+
+  service_price:
+    build:
+      context: .
+      dockerfile: ./service_price/Dockerfile
+    container_name: service_price
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./service_price:/app
+    command: bash -c "python manage.py runserver 0.0.0.0:8002"
+
+  soap_service:
+    build:
+      context: .
+      dockerfile: ./soap_service/Dockerfile
+    container_name: soap_service
+    ports:
+      - "8003:8003"
+    volumes:
+      - ./soap_service:/app
+    command: python run.py
+
+  consumer:
+    build:
+      context: .
+      dockerfile: ./consumer/Dockerfile
+    container_name: consumer
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      service_details:
+        condition: service_started
+      service_price:
+        condition: service_started
+      soap_service:
+        condition: service_started
+    volumes:
+      - ./consumer:/app
+    command: python consumer.py
+    restart: unless-stopped

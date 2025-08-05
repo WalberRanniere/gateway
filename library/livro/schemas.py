@@ -1,6 +1,8 @@
 from .models import Book, Category
 from typing import Dict, Any
 from ninja import Schema, ModelSchema
+from pydantic import BaseModel
+from typing import List
 
 
 class CategorySchema(ModelSchema):
@@ -9,7 +11,7 @@ class CategorySchema(ModelSchema):
         model_fields = '__all__'
 
 class BookSchema(ModelSchema):
-    categories: list[CategorySchema] 
+    categories: List[CategorySchema] 
     class Config:
         model = Book
         model_fields = '__all__'
@@ -53,4 +55,22 @@ class LivroDetalhadoSOAPSchema(Schema):
     ano: int
     preco: float
     moeda: str
+
+class LivroMensagemSchema(BaseModel):
+    isbn: str
+
+class LivroProcessadoSchema(Schema):
+    """Schema para livros processados pelo consumer"""
+    isbn: str
+    titulo: str
+    autor: str
+    preco: float
+    moeda: str
+
+class BookCreateSchema(Schema):
+    isbn: str
+    title: str
+    author: str
+    published_date: str
+    categories: List[int] = []  # IDs das categorias
 
